@@ -5,7 +5,15 @@ import (
 	"database/sql"
 	"fmt"
 	"time"
+
+	_ "embed"
 )
+
+//go:embed sql/language_by_extension.sql
+var LanguageByExtensionSQL string
+
+//go:embed sql/language_by_basename.sql
+var LanguageByBasenameSQL string
 
 func Open(ctx context.Context, filePath string) (*sql.DB, error) {
 	conn_str := fmt.Sprintf("file:%s?_busy_timeout=5000&_pragma=foreign_keys(1)", filePath)

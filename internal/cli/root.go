@@ -1,14 +1,12 @@
 package cli
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/spf13/cobra"
@@ -26,7 +24,7 @@ type Deps struct {
 
 func NewRootCmd(deps Deps) *cobra.Command {
 	var (
-		fConsole, fFile               bool
+		fConsole, fFile, fQuiet       bool
 		fConsoleFmt, fConsoleLvl      string
 		fFilePath, fFileFmt, fFileLvl string
 		fRunID, fOut, fIn             string
@@ -66,6 +64,7 @@ func NewRootCmd(deps Deps) *cobra.Command {
 				Source:         true, // or viper.GetBool("log.source") if you expose it
 				RunID:          viper.GetString("run-id"),
 				Component:      "cargoworker",
+				Quiet:          viper.GetBool("quiet"),
 			}
 
 			if opts.RunID == "" {
@@ -105,6 +104,14 @@ func NewRootCmd(deps Deps) *cobra.Command {
 				runUUID = uuid.New()
 			}
 
+			st := stats.New(
+				stats.WithRunID(opts.RunID),
+				stats.WithInputPath(inPath),
+				stats.WithOutDir(runOut),
+				stats.WithToolVersion("v1"),
+				stats.WithIRSchema("v1"),
+			)
+
 			rc := &project.RunContext{
 				RunId:       runUUID,
 				OutDir:      runOut,
@@ -114,12 +121,12 @@ func NewRootCmd(deps Deps) *cobra.Command {
 				Logger:      final,
 				DB:          nil,
 				Events:      deps.EventChan,
-				Stats:       &stats.Stats{TimeStarted: time.Now()},
+				Stats:       st,
 				Closers:     []func() error{closer},
 			}
 
-			ctx := context.WithValue(cmd.Context(), ctxKeyRunCtx, rc)
-			ctx = context.WithValue(ctx, ctxKeyInputPath, inPath)
+			ctx := project.WithRunContext(cmd.Context(), rc)
+			ctx = project.WithInputPath(ctx, inPath)
 			cmd.SetContext(ctx)
 
 			// A single handoff log
@@ -131,7 +138,7 @@ func NewRootCmd(deps Deps) *cobra.Command {
 			return nil
 		},
 		PersistentPostRunE: func(cmd *cobra.Command, args []string) error {
-			rc := RCtxFromCtx(cmd)
+			rc := project.FromContext(cmd.Context())
 			if rc == nil {
 				return nil
 			}
@@ -163,6 +170,7 @@ func NewRootCmd(deps Deps) *cobra.Command {
 	pf.StringVar(&fRunID, "run-id", "", "override run id")
 	pf.StringVar(&fOut, "out", "./out", "output root directory")
 	pf.StringVar(&fIn, "in", "", "input path (falls back to positional [PATH])")
+	pf.BoolVar(&fQuiet, "quiet", false, "suppress console output below errors")
 
 	// ----- Viper binding
 	viper.SetEnvPrefix("CARGOWORKER")
@@ -178,6 +186,7 @@ func NewRootCmd(deps Deps) *cobra.Command {
 	viper.SetDefault("log.file.level", "debug")
 	viper.SetDefault("out", "./cargoworkerout")
 	viper.SetDefault("in", "")
+	viper.SetDefault("quiet", false)
 
 	_ = viper.BindPFlag("log.console", pf.Lookup("log.console"))
 	_ = viper.BindPFlag("log.console.format", pf.Lookup("log.console.format"))
@@ -189,27 +198,8 @@ func NewRootCmd(deps Deps) *cobra.Command {
 	_ = viper.BindPFlag("run-id", pf.Lookup("run-id"))
 	_ = viper.BindPFlag("out", pf.Lookup("out"))
 	_ = viper.BindPFlag("in", pf.Lookup("in"))
+	_ = viper.BindPFlag("quiet", pf.Lookup("quiet"))
 
+	cmd.AddCommand(NewPlanCmd())
 	return cmd
-}
-
-type ctxKey int
-
-const (
-	ctxKeyRunCtx ctxKey = iota
-	ctxKeyInputPath
-)
-
-func RCtxFromCtx(cmd *cobra.Command) *project.RunContext {
-	if v := cmd.Context().Value(ctxKeyRunCtx); v != nil {
-		return v.(*project.RunContext)
-	}
-	return nil
-}
-
-func InputPathFrom(cmd *cobra.Command) string {
-	if v := cmd.Context().Value(ctxKeyInputPath); v != nil {
-		return v.(string)
-	}
-	return ""
 }

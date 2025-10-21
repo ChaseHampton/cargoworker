@@ -63,8 +63,7 @@ CREATE TABLE symbol (
   span_end      INTEGER,
   line          INTEGER,            -- 1-based
   col           INTEGER,            -- 1-based
-  exported      INTEGER NOT NULL DEFAULT 0 CHECK (exported IN (0,1)),
-  UNIQUE(package_id, kind, name, COALESCE(recv_type,''))
+  exported      INTEGER NOT NULL DEFAULT 0 CHECK (exported IN (0,1))
 );
 
 CREATE TABLE signature (
@@ -113,15 +112,47 @@ CREATE TABLE diagnostic (
   col           INTEGER
 );
 
+CREATE TABLE IF NOT EXISTS language (
+  id        TEXT PRIMARY KEY,      -- short, stable key: 'go', 'rust', 'zig', ...
+  name      TEXT NOT NULL UNIQUE,  -- display name
+  ecosystem TEXT,                  -- optional (e.g., 'JVM', '.NET', 'Node', 'BEAM')
+  -- room for future: parser_pack, version, etc.
+  CHECK (length(id) > 0)
+);
+
+-- Extension → language (fast allowlist)
+CREATE TABLE IF NOT EXISTS source_extension (
+  ext          TEXT PRIMARY KEY,   -- WITHOUT leading dot, lowercased (e.g., 'go', 'rs')
+  language_id  TEXT NOT NULL REFERENCES language(id) ON DELETE RESTRICT,
+  is_text      INTEGER NOT NULL DEFAULT 1,      -- 1=text, 0=binary-ish
+  is_primary   INTEGER NOT NULL DEFAULT 1,      -- 1=typical source for lang, 0=aux (e.g., headers)
+  notes        TEXT
+);
+
+
+-- Basename (no extension) → language
+CREATE TABLE IF NOT EXISTS source_basename (
+  name         TEXT PRIMARY KEY,   -- exact case-sensitive match (normalize how you like)
+  language_id  TEXT NOT NULL REFERENCES language(id) ON DELETE RESTRICT,
+  is_text      INTEGER NOT NULL DEFAULT 1,
+  notes        TEXT
+);
+
+CREATE UNIQUE INDEX ux_symbol_pkg_kind_name_recv
+  ON symbol(package_id, kind, name, ifnull(recv_type, ''));
+
+
 -- Indices for common lookups/hot paths
-CREATE INDEX idx_file_container_path ON file(container_id, rel_path);
-CREATE INDEX idx_pkg_container_import ON package(container_id, import_path);
-CREATE INDEX idx_symbol_pkg_name ON symbol(package_id, name);
-CREATE INDEX idx_symbol_kind ON symbol(kind);
-CREATE INDEX idx_relation_from ON relation(from_symbol_id);
-CREATE INDEX idx_relation_to ON relation(to_symbol_id);
-CREATE INDEX idx_typeref_symbol ON type_ref(symbol_id);
-CREATE INDEX idx_pkg_import_pkg ON pkg_import(package_id);
+CREATE INDEX IF NOT EXISTS idx_file_container_path ON file(container_id, rel_path);
+CREATE INDEX IF NOT EXISTS idx_pkg_container_import ON package(container_id, import_path);
+CREATE INDEX IF NOT EXISTS idx_symbol_pkg_name ON symbol(package_id, name);
+CREATE INDEX IF NOT EXISTS idx_symbol_kind ON symbol(kind);
+CREATE INDEX IF NOT EXISTS idx_relation_from ON relation(from_symbol_id);
+CREATE INDEX IF NOT EXISTS idx_relation_to ON relation(to_symbol_id);
+CREATE INDEX IF NOT EXISTS idx_typeref_symbol ON type_ref(symbol_id);
+CREATE INDEX IF NOT EXISTS idx_pkg_import_pkg ON pkg_import(package_id);
+CREATE INDEX IF NOT EXISTS idx_source_extension_lang ON source_extension(language_id);
+CREATE INDEX IF NOT EXISTS idx_source_basename_lang ON source_basename(language_id);
 
 -- Mark DB version
 PRAGMA user_version = 1;

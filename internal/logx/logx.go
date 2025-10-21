@@ -31,6 +31,9 @@ func New(opts Options) (*slog.Logger, func() error, error) {
 
 	if opts.ConsoleEnabled {
 		lvl, _ := toSlogLevel(opts.ConsoleLevel)
+		if opts.Quiet {
+			lvl, _ = toSlogLevel(LevelError)
+		}
 		ho := &slog.HandlerOptions{Level: lvl, AddSource: opts.Source}
 		w := os.Stderr
 		var h slog.Handler

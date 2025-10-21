@@ -14,4 +14,5 @@ type Options struct {
 	Source    bool
 	RunID     string
 	Component string
+	Quiet     bool
 }
